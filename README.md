@@ -6,7 +6,9 @@ git clone https://github.com/iduos/CLIMATE_BOT.git
 cd CLIMATE_BOT
 
 python3 -m venv os_env
+
 source os_env/bin/activate
+
 pip install -r requirements.txt
 
 The database included here uses a local model for embedding, nomic-embed-text:latest.
@@ -16,6 +18,7 @@ So you will need to install ollama
   https://ollama.com/download
 
 ollama pull nomic-embed-text:latest
+
 ollama pull qwen3:30b
 
 
