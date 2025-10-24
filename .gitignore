@@ -1,0 +1,75 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+mvenv/
+penv/
+menv/
+os_env
+
+data/
+vdbs/
+chroma_db/
+old/
+logs/
+results/
+notes/
+
+
+# Virtual environments
+op_env/
+.venv/
+venv/
+ENV/
+
+# Python cache / build
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# OS/editor
+.DS_Store
+
+# VS Code settings
+.vscode/
+
+# Environment variables and secrets
+.env
+*.env
+
+# MacOS system files
+.DS_Store
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+htmlcov/
+coverage.xml
+*.cover
+*.py,cover
+
+# mypy
+.mypy_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+NOTES*.TXT
+ollama*.log
+test*.log
+output*.txt
