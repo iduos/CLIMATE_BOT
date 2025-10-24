@@ -1,0 +1,58 @@
+# Core LLM and Langchain support
+langchain
+langchain-community
+langchain-core
+langchain-ollama
+langchain-chroma
+pydantic>=2.0,<3.0
+ollama
+scikit-learn-extra
+# Embedding + vector database
+chromadb
+sentence-transformers
+faiss-cpu  # Optional: only if using FAISS instead of Chroma
+
+# Machine learning
+scikit-learn
+#scikit-learn-extra
+gower
+hdbscan
+kmedoids
+procrustes
+umap-learn
+numba
+tbb
+detoxify
+
+# Data handling
+pandas
+numpy
+
+# Reddit API
+praw
+
+# UI (for Streamlit App)
+streamlit
+plotly
+matplotlib
+seaborn
+umap-learn
+
+# Other utilities
+requests
+tqdm
+
+bert_score
+sentence-transformers
+transformers
+torch
+vaderSentiment
+textblob
+scikit-learn
+wordcloud>=1.9.0
+nltk>=3.8.0
+
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+google-generativeai
