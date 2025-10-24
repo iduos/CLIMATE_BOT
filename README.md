@@ -2,7 +2,7 @@
 
 Clone the repository and install dependencies:
 
-git clone https://github.com/idprogs/OS_BOT.git
+git clone https://github.com/iduos/CLIMATE_BOT.git
 cd CLIMATE_BOT
 
 python3 -m venv os_env
