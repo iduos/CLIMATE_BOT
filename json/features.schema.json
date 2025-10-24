@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LLM Rubric Output",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "evidence_spans": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "prompt_id": { "type": "string" },
+        "rubric_name": { "type": "string" },
+        "rubric_version": { "type": "string" },
+        "model": { "type": "string" }
+      }
+    }
+  },
+  "required": ["evidence_spans"],
+  "patternProperties": {
+    "^(?!evidence_spans$|meta$).*": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "score": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "justification": { "type": "string", "minLength": 1 }
+      },
+      "required": ["score", "justification"]
+    }
+  },
+  "minProperties": 2
+}
