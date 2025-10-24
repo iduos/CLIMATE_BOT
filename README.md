@@ -40,7 +40,7 @@ ollama pull qwen3:30b
 
 ## The chatbot
 
-One linux or a mac you can run the chatbot with local models using ollama 
+On linux or a mac you can run the chatbot with local models using ollama 
 
   streamlit run climate_bot.py -- \
   --embed_model nomic-embed-text:latest \
@@ -72,7 +72,9 @@ You can build your own vector database with your own searches and classification
 You will need Reddit credentials for example add to .env
 
   REDDIT_CLIENT_ID=*****************
+  
   REDDIT_CLIENT_SECRET=******************
+  
   REDDIT_USER_AGENT=**********************
 
 gemini-2.5-flash is recommended for classification
