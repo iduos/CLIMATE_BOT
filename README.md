@@ -2,7 +2,6 @@
 
 Clone the repository and install dependencies:
 
-```bash
 git clone https://github.com/idprogs/OS_BOT.git
 cd CLIMATE_BOT
 
