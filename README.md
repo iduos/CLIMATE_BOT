@@ -1,4 +1,26 @@
-The files included are...
+## Installation
+
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/idprogs/OS_BOT.git
+cd CLIMATE_BOT
+
+python3 -m venv os_env
+source os_env/bin/activate
+pip install -r requirements.txt
+
+The database included here uses a local model for embedding, nomic-embed-text:latest.
+
+So you will need to install ollama
+
+  https://ollama.com/download
+
+ollama pull nomic-embed-text:latest
+ollama pull qwen3:30b
+
+
+## The files included are...
 
   climate_bot.py                chatbot with selectable viewpoints by positively filtering a vector database
 
@@ -12,22 +34,9 @@ The files included are...
 
   /rubrics                  your json specifying how to categorise comments 
 
-To install and use, create a venv or conda environment
 
-  conda create --name climate_bot
 
-  conda activate climate_bot
-
-  pip install -r requirements.txt
-
-The database included here uses a local model for embedding, nomic-embed-text:latest.
-
-So you will need to install ollama
-
-  https://ollama.com/download
-
-  ollama pull nomic-embed-text:latest
-
+## The chatbot
 
 One linux or a mac you can run the chatbot with local models using ollama 
 
@@ -54,6 +63,7 @@ Hence run with...
   --chat_model gemini-2.5-flash \
   --vector_db_path vdbs/climate_uk4_5000GF
 
+## Build your own vector database
 
 You can build your own vector database with your own searches and classification criteria.
 
