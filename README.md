@@ -47,17 +47,17 @@ ollama pull qwen3:30b
 
 # The files included are...
 
-  **climate_bot.py**                chatbot with selectable viewpoints by positively filtering a vector database
+  **climate_bot.py**            chatbot with selectable viewpoints by positively filtering a vector database
 
   **build_knowledge_base.py**   scrape, categorise and add post/comments pairs and meta data to a vector database
 
-  /src                      common source files of functions used by the applications
+  **/src**                      common source files of functions used by the applications
 
-  /vdbs                     vector database
+  **/vdbs**                     vector database
 
-  /json                     some important schema for LLM output verification
+  **/json**                     some important schema for LLM output verification
 
-  /rubrics                  your json specifying how to categorise comments 
+  **/rubrics**                  your json specifying how to categorise comments 
 
 # The chatbot
 
