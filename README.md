@@ -69,6 +69,15 @@ On linux or a mac you can run the chatbot with local models using ollama
 
 (For Windows powershell replace \ with ` )
 
+```bash
+streamlit run climate_bot.py -- `
+  --embed_model nomic-embed-text:latest `
+  --embed_backend ollama `
+  --chat_model gpt-oss:20b `
+  --chat_backend ollama `
+  --vector_db_path vdbs/climate_uk4_5000GF
+```
+
 You can also run the chatbot with an API key specified in a .env file in the same directory 
 as the python files climate_bot.py and build_knowledge_base.py, with the contents, for example 
 
