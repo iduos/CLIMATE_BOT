@@ -104,7 +104,9 @@ You will need Reddit credentials for example add to .env
   
   REDDIT_USER_AGENT=**********************
 
-gemini-2.5-flash is recommended for classification
+gemini-2.5-flash is recommended for classification, 
+
+for local testing qwen3:30b or llama3.1 models work fine though less accurate.
 
 You can build your own vector database with your own searches and classification criteria.
 
