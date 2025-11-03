@@ -67,7 +67,7 @@ On linux or a mac you can run the chatbot with local models using ollama
   streamlit run climate_bot.py -- \
   --embed_model nomic-embed-text:latest \
   --embed_backend ollama \
-  --chat_model gpt-oss:20b \
+  --chat_model qwen3:30b \
   --chat_backend ollama \
   --vector_db_path vdbs/climate_uk4_5000GF
 ```
@@ -78,7 +78,7 @@ On linux or a mac you can run the chatbot with local models using ollama
 streamlit run climate_bot.py -- `
   --embed_model nomic-embed-text:latest `
   --embed_backend ollama `
-  --chat_model gpt-oss:20b `
+  --chat_model qwen3:30b `
   --chat_backend ollama `
   --vector_db_path vdbs/climate_uk4_5000GF
 ```
