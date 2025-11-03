@@ -4,8 +4,11 @@
 
 Clone the repository and install dependencies:
 
+```bash
 git clone https://github.com/iduos/CLIMATE_BOT.git
+
 cd CLIMATE_BOT
+```
 
 # Create a python virtual environment...
 
@@ -123,46 +126,36 @@ NOTE gpt-oss:20b or gpt-oss:120b will not work for classification as they don't 
 
 ## APPENDIX
 
-If you get error...
-
-× Failed to build installable wheels for some pyproject.toml based projects
-
+If you see this error
+× Failed to build installable wheels for some pyproject.toml-based projects
 ╰─> scikit-learn-extra, hdbscan
-
-This is a very common and straightforward error when installing Python packages on Windows that rely on underlying C/C++ code, which includes many scientific computing libraries like scikit-learn-extra and hdbscan.
-
-The error message is explicitly telling you what's missing:
-
 error: Microsoft Visual C++ 14.0 or greater is required.
 
-🛠️ The Solution: Install Microsoft Build Tools
-To build these packages from their source code (which happens when a pre-compiled wheel isn't available for your specific Python version or environment), Python needs a C/C++ compiler. On Windows, this is provided by the Microsoft C++ Build Tools.
+This is a common issue on Windows when installing Python packages that use C/C++ extensions (like scikit-learn-extra or hdbscan).
 
-You need to download and install the Microsoft C++ Build Tools from the official Microsoft site.
+Fix: Install Microsoft C++ Build Tools
+When a pre-compiled wheel isn’t available for your Python version, pip must build the package from source — which requires a C/C++ compiler. On Windows, this compiler is provided by the Microsoft C++ Build Tools.
 
-Step 1: Download the Build Tools
-Go to the link provided in your error message (or search for "Microsoft C++ Build Tools").
+1. Download the Installer
+Get the Visual Studio Community Installer
+—or directly the Build Tools.
 
-Link: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Install the C++ Workload
 
-Download the **Visual Studio Installer**
 
-https://visualstudio.microsoft.com/downloads/
+Run the downloaded installer
 
-Step 2: Install the Necessary Workload
-Run the downloaded installer.
 
-When the installer opens, select the "Workloads" tab.
+In the Workloads tab, check “Desktop development with C++”
 
-Check the box for the **"Desktop development with C++"** workload.
 
-Click Install.
+Click Install
 
-Step 3: Re-run your pip install
-After the installation is complete, restart your PowerShell/Anaconda Prompt to ensure the new compiler environment variables are loaded. Then, run your original command again:
 
-PowerShell
-(bot_env) (base) PS C:\tmp\WIN_BOT> pip install -r requirements.txt
-The packages scikit-learn-extra and hdbscan should now successfully build and install.
 
-Would you like me to look up the direct download link for the Visual Studio Build Tools, or check if there's an existing pre-built wheel for your specific Python version (e.g., Python 3.13) that might bypass this issue?
+3. Re-run your install
+After installation, restart PowerShell or your Anaconda Prompt to load the new compiler environment, then run:
+
+pip install -r requirements.txt
+
+The packages scikit-learn-extra and hdbscan should now build and install successfully.
