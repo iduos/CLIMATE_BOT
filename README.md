@@ -1,3 +1,8 @@
+# About
+
+Code to implement and evaluate virtual humans whose responses to environmental messaging are shaped by their media diets and social interactions. The project scraped thousands of social media post–comment pairs related to environmental issues, classified them by viewpoint through the large-scale orchestration of multiple instances of large language models, and built a vector database of embedded interactions with associated classification metadata to serve as a knowledge source for a chatbot. Dynamic, metadata-based filtering of this knowledge source, in conjunction with retrieval-augmented generation, enabled a chatbot with selectable personas that generate responses to new social media posts based on stereotypical viewpoints grounded in current news, attitudes and zeitgeists. A qualitative and quantitative evaluation was conducted to demonstrate the validity of the approach, though its full potential remains to be explored.
+
+
 # Installation
 
 ## Clone the repository...
