@@ -1,6 +1,6 @@
-## Installation
+# Installation
 
-# Clone the repository...
+## Clone the repository...
 
 Clone the repository and install dependencies:
 
@@ -10,7 +10,7 @@ git clone https://github.com/iduos/CLIMATE_BOT.git
 cd CLIMATE_BOT
 ```
 
-# Create a python virtual environment...
+## Create a python virtual environment...
 
 ```bash
 python -m venv bot_env
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 If you get *'Failed to build installable wheels for some pyproject.toml based projects'* with Windows...see APPENDIX at end of this README.md
 
-# Install Ollama and models...
+## Install Ollama and models...
 
 The database included here uses a local model for embedding, nomic-embed-text:latest.
 
@@ -40,7 +40,7 @@ ollama pull nomic-embed-text:latest
 ollama pull qwen3:30b
 ```
 
-## The files included are...
+# The files included are...
 
   **climate_bot.py**                chatbot with selectable viewpoints by positively filtering a vector database
 
@@ -54,7 +54,7 @@ ollama pull qwen3:30b
 
   /rubrics                  your json specifying how to categorise comments 
 
-## The chatbot
+# The chatbot
 
 On linux or a mac you can run the chatbot with local models using ollama 
 
@@ -94,9 +94,7 @@ Hence run with...
   --vector_db_path vdbs/climate_uk4_5000GF
 ```
 
-## Build your own vector database
-
-
+# Build your own vector database
 
 You will need Reddit credentials for example add to .env
 
@@ -133,7 +131,7 @@ Replace *rubrics/climateUK4.json** with your file in rubrics folder. Note the js
 NOTE gpt-oss:20b or gpt-oss:120b will not work for classification as they don't support the json output needed.
 
 
-## APPENDIX
+# APPENDIX
 
 If you see this error
 × Failed to build installable wheels for some pyproject.toml-based projects
@@ -146,21 +144,15 @@ Fix: Install Microsoft C++ Build Tools
 When a pre-compiled wheel isn’t available for your Python version, pip must build the package from source — which requires a C/C++ compiler. On Windows, this compiler is provided by the Microsoft C++ Build Tools.
 
 1. Download the Installer
+
 Get the Visual Studio Community Installer
 —or directly the Build Tools.
 
 2. Install the C++ Workload
 
-
 Run the downloaded installer
 
-
-In the Workloads tab, check “Desktop development with C++”
-
-
-Click Install
-
-
+In the Workloads tab, check “Desktop development with C++”. Click Install
 
 3. Re-run your install
 After installation, restart PowerShell or your Anaconda Prompt to load the new compiler environment, then run:
