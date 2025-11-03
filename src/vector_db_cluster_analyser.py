@@ -10,7 +10,8 @@ from collections import Counter
 from typing import Dict, List, Any, Tuple, Optional
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
-from langchain.schema import Document
+#from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from scipy.stats import entropy
 from sklearn.preprocessing import StandardScaler
@@ -660,17 +661,34 @@ The following features show the strongest clustering patterns:"""
             try:
                 # Try to load score interpretations from the prompts file
                 with open(prompts_file_used_for_scoring, 'r') as f:
+                    
+                    #print(f"Loading score interpretations from {prompts_file_used_for_scoring}...")
+                    
                     prompts_data = json.load(f)
+
+                    #print("Extracting score interpretations...", prompts_data)
+                    
                     if 'score_interpretations' in prompts_data:
                         legend_text = json.dumps(prompts_data['score_interpretations'], indent=2)
                     elif 'prompts' in prompts_data:
                         # Extract score information from prompts
+
                         legend_parts = []
                         for prompt_item in prompts_data['prompts']:
                             if 'name' in prompt_item and 'scale' in prompt_item:
                                 legend_parts.append(f"{prompt_item['name']}: {prompt_item.get('scale', 'N/A')}")
                         if legend_parts:
                             legend_text = "\n".join(legend_parts)
+                    else:
+                        legend_parts = []
+                        for prompt_item in prompts_data:
+                            legend_parts.append(f"feature: {prompt_item.get('feature')}")
+                            legend_parts.append(f"type: {prompt_item.get('type')}")
+                            legend_parts.append(f"rubric: {prompt_item.get('rubric')}\n")
+
+                        if legend_parts:
+                            legend_text = "\n".join(legend_parts)
+
             except Exception as e:
                 print(f"Warning: Could not load score interpretations from {prompts_file_used_for_scoring}: {e}")
                 legend_text = ""

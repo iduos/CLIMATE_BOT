@@ -509,7 +509,7 @@ class EnhancedCommentScorer(CommentScorer):
                 filtered_features.append(f)
             self.features = filtered_features
 
-        _global_debug_logger.write_file("Features",[(f.key, f.type) for f in self.features])
+        _global_debug_logger.write_file("Features",[(f.get("feature", "unknown"), f.get("type", "unknown")) for f in self.features])
         _global_debug_logger.write_file("Items in evaluator score batch", items)
 
         try:
@@ -816,7 +816,9 @@ class ChatbotEvaluator:
         target_category_framework: Optional[str] = None,
         search_query: Optional[str] = None,
         source: str = "json",
-        comment_ids: Optional[List[str]] = None
+        comment_ids: Optional[List[str]] = None,
+        stratify_feature: Optional[str] = None,
+        stratify_framework: Optional[str] = None
     ) -> List[Dict]:
         """
         Loads and samples real post-comment pairs with optional filtering.
@@ -829,6 +831,8 @@ class ChatbotEvaluator:
             search_query: Filter by search query
             source: Data source ("json" or "vector_db")
             comment_ids: List of specific comment IDs to load (overrides sampling)
+            stratify_feature: Feature name to stratify sampling by
+            stratify_framework: Framework name for the stratify feature
         """
         full_data = []
 
@@ -869,8 +873,16 @@ class ChatbotEvaluator:
                 where_filter = {"$and": where_conditions}
 
             try:
-                # Increase limit if we're looking for specific IDs
-                fetch_limit = len(comment_ids) if comment_ids else sample_size
+                # Increase limit if we're looking for specific IDs or doing stratified sampling
+                if comment_ids:
+                    fetch_limit = len(comment_ids)
+                elif stratify_feature is not None:
+                    # For stratified sampling, we need to fetch ALL items to properly stratify
+                    # Use a very large limit to get all items (ChromaDB doesn't have "unlimited")
+                    fetch_limit = 1000000  # Effectively unlimited
+                    print(f"Fetching all items from vector DB for stratification (limit={fetch_limit})")
+                else:
+                    fetch_limit = sample_size
                 
                 results = self.rag_chatbot.vector_store._collection.get(
                     where=where_filter,
@@ -975,9 +987,148 @@ class ChatbotEvaluator:
                 print(f"Warning: Sample size ({sample_size}) > available data ({len(full_data)}). Using all data.")
                 return full_data
             
-            return random.sample(full_data, sample_size)
+            # Check if stratified sampling is requested
+            if stratify_feature is not None:
+                print(f"\nPerforming stratified sampling by feature: '{stratify_feature}'")
+                if stratify_framework:
+                    print(f"  Using framework: '{stratify_framework}'")
+                
+                # Group data by feature labels
+                feature_groups = {}
+                items_without_feature = []
+                
+                for item in full_data:
+                    categories = item.get("categories_json", {})
+                    if isinstance(categories, str):
+                        try:
+                            categories = json.loads(categories)
+                        except json.JSONDecodeError:
+                            categories = {}
+                    
+                    # Extract the feature value
+                    feature_value = None
+                    if isinstance(categories, dict):
+                        if stratify_framework:
+                            feature_value = categories.get(stratify_framework)
+                        else:
+                            # Look for the feature in any framework
+                            for framework_name, cat_value in categories.items():
+                                if framework_name.lower() == stratify_feature.lower() or \
+                                   stratify_feature.lower() in framework_name.lower():
+                                    feature_value = cat_value
+                                    break
+                    
+                    if feature_value is not None:
+                        feature_value_str = str(feature_value)
+                        if feature_value_str not in feature_groups:
+                            feature_groups[feature_value_str] = []
+                        feature_groups[feature_value_str].append(item)
+                    else:
+                        items_without_feature.append(item)
+                
+                if not feature_groups:
+                    print(f"  Warning: No items found with feature '{stratify_feature}'. Falling back to random sampling.")
+                    return random.sample(full_data, sample_size)
+                
+                # Display distribution
+                print(f"  Found {len(feature_groups)} unique labels:")
+                for label, items in sorted(feature_groups.items()):
+                    print(f"    - {label}: {len(items)} items")
+                if items_without_feature:
+                    print(f"    - (no label): {len(items_without_feature)} items")
+                
+                # Calculate samples per group (equal distribution)
+                num_groups = len(feature_groups)
+                samples_per_group = sample_size // num_groups
+                remaining_samples = sample_size % num_groups
+                
+                print(f"  Target: {samples_per_group} samples per group")
+                if remaining_samples > 0:
+                    print(f"  ({remaining_samples} extra samples will be distributed)")
+                
+                # Sample from each group
+                stratified_samples = []
+                groups_with_insufficient_data = []
+                
+                for label, items in sorted(feature_groups.items()):
+                    # Determine how many samples to take from this group
+                    target_samples = samples_per_group
+                    if remaining_samples > 0:
+                        target_samples += 1
+                        remaining_samples -= 1
+                    
+                    if len(items) < target_samples:
+                        groups_with_insufficient_data.append((label, len(items), target_samples))
+                        # Take all available items from this group
+                        stratified_samples.extend(items)
+                        print(f"  Warning: '{label}' has only {len(items)} items (need {target_samples}), using all")
+                    else:
+                        # Randomly sample the target number from this group
+                        sampled = random.sample(items, target_samples)
+                        stratified_samples.extend(sampled)
+                        print(f"  Sampled {target_samples} from '{label}'")
+                
+                # If we don't have enough samples due to small groups, add more from larger groups
+                if len(stratified_samples) < sample_size:
+                    deficit = sample_size - len(stratified_samples)
+                    print(f"  Deficit of {deficit} samples due to small groups")
+                    
+                    # Find groups with remaining items
+                    available_for_extra = []
+                    for label, items in feature_groups.items():
+                        # Count how many we already took from this group
+                        already_taken = sum(1 for s in stratified_samples if self._get_feature_value(s, stratify_feature, stratify_framework) == label)
+                        remaining_in_group = len(items) - already_taken
+                        if remaining_in_group > 0:
+                            # Get the items we haven't sampled yet
+                            item_ids_taken = {id(s) for s in stratified_samples}
+                            remaining_items = [item for item in items if id(item) not in item_ids_taken]
+                            available_for_extra.extend(remaining_items)
+                    
+                    if available_for_extra:
+                        extra_samples = min(deficit, len(available_for_extra))
+                        extra = random.sample(available_for_extra, extra_samples)
+                        stratified_samples.extend(extra)
+                        print(f"  Added {extra_samples} extra samples from groups with remaining items")
+                
+                print(f"  Final sample size: {len(stratified_samples)}")
+                return stratified_samples
+            else:
+                # Original random sampling if no stratification requested
+                return random.sample(full_data, sample_size)
         
         return full_data
+
+    def _get_feature_value(self, item: Dict, feature_name: str, framework: Optional[str] = None) -> Optional[str]:
+        """
+        Extract the value of a feature from an item's categories.
+        
+        Args:
+            item: Data item containing categories_json
+            feature_name: Name of the feature to extract
+            framework: Optional framework name for the feature
+            
+        Returns:
+            Feature value as string, or None if not found
+        """
+        categories = item.get("categories_json", {})
+        if isinstance(categories, str):
+            try:
+                categories = json.loads(categories)
+            except json.JSONDecodeError:
+                return None
+        
+        if isinstance(categories, dict):
+            if framework:
+                return str(categories.get(framework)) if categories.get(framework) is not None else None
+            else:
+                # Look for the feature in any framework
+                for framework_name, cat_value in categories.items():
+                    if framework_name.lower() == feature_name.lower() or \
+                       feature_name.lower() in framework_name.lower():
+                        return str(cat_value) if cat_value is not None else None
+        
+        return None
 
     def score_alignment_direct(self, comparison_item: Dict, alignment_features: List[Dict]) -> Dict:
         """Score alignment features directly using the configured LLM."""
@@ -1141,7 +1292,9 @@ class ChatbotEvaluator:
         include_justifications: bool = False,
         categorize_comments: bool = False,
         category_features_path: Optional[str] = None,
-        comment_ids_csv: Optional[str] = None
+        comment_ids_csv: Optional[str] = None,
+        stratify_feature: Optional[str] = None,
+        stratify_framework: Optional[str] = None
     ) -> List[Dict]:
         """
         Evaluate the chatbot by generating comments for sampled post/comment pairs and scoring them.
@@ -1158,6 +1311,8 @@ class ChatbotEvaluator:
             categorize_comments: Whether to categorize generated comments
             category_features_path: Path to category features JSON
             comment_ids_csv: Path to CSV file with 'original_comment_id' column
+            stratify_feature: Feature name to stratify sampling by (samples equally across all labels)
+            stratify_framework: Framework name for the stratify feature
         
         Returns:
             List of evaluation results
@@ -1186,7 +1341,9 @@ class ChatbotEvaluator:
             target_category_framework=category_framework,
             search_query=search_query, 
             source=source_data,
-            comment_ids=specific_comment_ids
+            comment_ids=specific_comment_ids,
+            stratify_feature=stratify_feature,
+            stratify_framework=stratify_framework
         )
         
         if not sampled_data:

@@ -9,7 +9,9 @@ from typing import Optional, List, Dict, Union
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.schema import Document
+#from langchain.schema import Document
+from langchain_core.documents import Document
+from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
@@ -82,11 +84,12 @@ def create_embeddings(
         )
     
     elif backend == "ollama":
+        
         return OllamaEmbeddings(
             model=model_name,
             **kwargs
         )
-    
+
     else:
         raise ValueError(f"Unsupported embedding backend: {backend}. Supported: openai, gemini, ollama")
 

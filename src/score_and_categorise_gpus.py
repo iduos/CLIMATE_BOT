@@ -1,6 +1,6 @@
 #
-# Extended version with OpenAI and Gemini API support
 # By Ian Drumm, The University of Salford, UK.
+# Modified with improved timeout handling and retry logic
 #
 import json
 import os
@@ -80,7 +80,7 @@ class LLMClient(ABC):
 class OpenAIClient(LLMClient):
     """OpenAI API client with async support"""
     
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, timeout: int = 300):
         if not OPENAI_AVAILABLE:
             raise ImportError("OpenAI library not installed. Run: pip install openai")
         
@@ -89,13 +89,15 @@ class OpenAIClient(LLMClient):
             raise ValueError("OpenAI API key required. Set OPENAI_API_KEY environment variable or pass api_key parameter")
         
         self.base_url = base_url
+        self.timeout = timeout
         self.client = None
     
     async def __aenter__(self):
         # Initialize async OpenAI client
         self.client = openai.AsyncOpenAI(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            timeout=self.timeout
         )
         return self
     
@@ -144,7 +146,7 @@ class OpenAIClient(LLMClient):
 class GeminiClient(LLMClient):
     """Google Gemini API client with async support"""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, timeout: int = 300):
         if not GEMINI_AVAILABLE:
             raise ImportError("Google Generative AI library not installed. Run: pip install google-generativeai")
         
@@ -153,6 +155,7 @@ class GeminiClient(LLMClient):
             raise ValueError("Gemini API key required. Set GEMINI_API_KEY or GOOGLE_API_KEY environment variable or pass api_key parameter")
         
         genai.configure(api_key=self.api_key)
+        self.timeout = timeout
         self.model_instance = None
     
     async def __aenter__(self):
@@ -202,9 +205,12 @@ class GeminiClient(LLMClient):
         try:
             # Run in executor since Gemini SDK doesn't have native async
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: model_instance.generate_content(full_prompt)
+            response = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: model_instance.generate_content(full_prompt)
+                ),
+                timeout=self.timeout
             )
             
             # Format response to match expected structure
@@ -213,102 +219,120 @@ class GeminiClient(LLMClient):
                     "content": response.text
                 }
             }
+        except asyncio.TimeoutError:
+            raise Exception(f"Gemini API timeout after {self.timeout} seconds")
         except Exception as e:
             raise Exception(f"Gemini API error: {str(e)}")
 
 
 # ============================================================================
-# Ollama Client (from original code)
+# Ollama Async Client Implementation
 # ============================================================================
 
-class MultiPortOllamaClient(LLMClient):
-    """Multi-port Ollama client (original implementation)"""
+class OllamaAsyncClient(LLMClient):
+    """Ollama API client with improved timeout and error handling"""
     
-    def __init__(self, ports=[11434], max_connections_per_port=3):
-        self.base_urls = [f"http://localhost:{port}" for port in ports]
-        self.max_connections_per_port = max_connections_per_port
-        self.sessions = {}
-        self.port_index = 0
-        self.lock = asyncio.Lock()
-        self.port_health = {url: True for url in self.base_urls}
-        self.is_single_instance = len(ports) == 1
+    def __init__(self, base_url: str = "http://localhost:11434", timeout: int = 300):
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.session = None
     
     async def __aenter__(self):
-        for url in self.base_urls:
-            connection_limit = self.max_connections_per_port * 2 if self.is_single_instance else self.max_connections_per_port
-            connector = aiohttp.TCPConnector(
-                limit=connection_limit,
-                limit_per_host=connection_limit,
-                ttl_dns_cache=300,
-                use_dns_cache=True
-            )
-            timeout = aiohttp.ClientTimeout(total=120, connect=30)
-            session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-            self.sessions[url] = session
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        self.session = aiohttp.ClientSession(timeout=timeout)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        for session in self.sessions.values():
-            await session.close()
-    
-    async def _get_next_session(self):
-        async with self.lock:
-            if self.is_single_instance:
-                url = self.base_urls[0]
-                return self.sessions[url], url
-            
-            healthy_urls = [url for url in self.base_urls if self.port_health[url]]
-            if not healthy_urls:
-                self.port_health = {url: True for url in self.base_urls}
-                healthy_urls = self.base_urls
-            
-            url = healthy_urls[self.port_index % len(healthy_urls)]
-            self.port_index = (self.port_index + 1) % len(healthy_urls)
-            return self.sessions[url], url
-    
-    def _mark_port_unhealthy(self, url: str):
-        if not self.is_single_instance:
-            self.port_health[url] = False
+        if self.session:
+            await self.session.close()
     
     async def chat(self, model: str, messages: List[Dict[str, str]], 
                    format: str = "json", options: Optional[Dict] = None) -> Dict[str, Any]:
-        last_error = None
-        actual_retries = 1 if self.is_single_instance else 2
+        """Make Ollama chat completion request with timeout"""
+        options = options or {}
         
-        for attempt in range(actual_retries):
-            try:
-                session, base_url = await self._get_next_session()
-                
-                payload = {
-                    "model": model,
-                    "messages": messages,
-                    "stream": False,
-                    "format": format,
-                    "options": options or {"temperature": 0.0, "num_ctx": 4096}
-                }
-                
-                async with session.post(f"{base_url}/api/chat", json=payload) as response:
-                    if response.status == 200:
-                        self.port_health[base_url] = True
-                        return await response.json()
-                    else:
-                        error_text = await response.text()
-                        last_error = f"HTTP {response.status} from {base_url}: {error_text}"
-                        if response.status == 404:
-                            self._mark_port_unhealthy(base_url)
-                        if attempt < actual_retries - 1:
-                            await asyncio.sleep(0.5)
-                        continue
-            except asyncio.TimeoutError:
-                last_error = f"Timeout connecting to {base_url if 'base_url' in locals() else 'unknown'}"
-                if 'base_url' in locals():
-                    self._mark_port_unhealthy(base_url)
-            except Exception as e:
-                last_error = f"Error with {base_url if 'base_url' in locals() else 'unknown'}: {str(e)}"
-                if 'base_url' in locals():
-                    self._mark_port_unhealthy(base_url)
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "format": format,
+            "options": options
+        }
         
-        raise Exception(f"All attempts failed. Last error: {last_error}")
+        try:
+            async with self.session.post(f"{self.base_url}/api/chat", json=payload) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise Exception(f"Ollama API error {resp.status}: {text}")
+                
+                data = await resp.json()
+                return data
+                
+        except asyncio.TimeoutError:
+            raise Exception(f"Ollama API timeout after {self.timeout} seconds")
+        except aiohttp.ClientError as e:
+            raise Exception(f"Ollama network error: {str(e)}")
+
+
+# ============================================================================
+# Ollama Synchronous Client (Multi-GPU)
+# ============================================================================
+
+class OllamaClient(LLMClient):
+    """Synchronous Ollama client for multi-GPU setup"""
+    
+    def __init__(self, ports: List[int] = None, timeout: int = 300):
+        self.ports = ports or [11434]
+        self.timeout = timeout
+        self.current_index = 0
+        self.lock = threading.Lock()
+    
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+    
+    def _get_next_port(self) -> int:
+        """Round-robin port selection"""
+        with self.lock:
+            port = self.ports[self.current_index % len(self.ports)]
+            self.current_index += 1
+            return port
+    
+    async def chat(self, model: str, messages: List[Dict[str, str]], 
+                   format: str = "json", options: Optional[Dict] = None) -> Dict[str, Any]:
+        """Make Ollama request with round-robin port selection"""
+        import requests
+        
+        options = options or {}
+        port = self._get_next_port()
+        url = f"http://localhost:{port}/api/chat"
+        
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "format": format,
+            "options": options
+        }
+        
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.post(url, json=payload, timeout=self.timeout)
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"Ollama API error {response.status_code}: {response.text}")
+            
+            return response.json()
+            
+        except requests.Timeout:
+            raise Exception(f"Ollama API timeout after {self.timeout} seconds on port {port}")
+        except Exception as e:
+            raise Exception(f"Ollama error on port {port}: {str(e)}")
 
 
 # ============================================================================
@@ -317,382 +341,294 @@ class MultiPortOllamaClient(LLMClient):
 
 def create_llm_client(backend: str, **kwargs) -> LLMClient:
     """Factory function to create appropriate LLM client"""
+    backend = backend.lower()
     
-    if backend == "ollama_async" or backend == "ollama":
-        ports = kwargs.get("ollama_ports", [11434])
-        max_connections = kwargs.get("max_connections_per_port", 3)
-        return MultiPortOllamaClient(ports=ports, max_connections_per_port=max_connections)
+    if backend == "ollama_async":
+        base_url = kwargs.get("base_url", "http://localhost:11434")
+        timeout = kwargs.get("timeout", 300)
+        return OllamaAsyncClient(base_url=base_url, timeout=timeout)
+    
+    elif backend == "ollama":
+        ports = kwargs.get("ports", [11434])
+        timeout = kwargs.get("timeout", 300)
+        return OllamaClient(ports=ports, timeout=timeout)
     
     elif backend == "openai":
-        api_key = kwargs.get("openai_api_key")
-        base_url = kwargs.get("openai_base_url")
-        return OpenAIClient(api_key=api_key, base_url=base_url)
+        api_key = kwargs.get("api_key")
+        base_url = kwargs.get("base_url")
+        timeout = kwargs.get("timeout", 300)
+        return OpenAIClient(api_key=api_key, base_url=base_url, timeout=timeout)
     
     elif backend == "gemini":
-        api_key = kwargs.get("gemini_api_key")
-        return GeminiClient(api_key=api_key)
+        api_key = kwargs.get("api_key")
+        timeout = kwargs.get("timeout", 300)
+        return GeminiClient(api_key=api_key, timeout=timeout)
     
     else:
-        raise ValueError(f"Unknown backend: {backend}. Supported: ollama_async, openai, gemini")
+        raise ValueError(f"Unknown backend: {backend}. Choose from: ollama_async, ollama, openai, gemini")
 
 
 # ============================================================================
-# Helper functions (from original code - keeping relevant ones)
+# Helper Functions
 # ============================================================================
 
-def snake(s: str) -> str:
-    s = re.sub(r"[^A-Za-z0-9]+", "_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
-    return s.lower()
+def _extract_content(resp: Dict[str, Any]) -> Optional[str]:
+    """Extract content from LLM response"""
+    msg = resp.get("message", {})
+    return msg.get("content")
 
 
-class Feature(BaseModel):
-    feature: str
-    type: str = Field(default="score", description="score | category")
-    rubric: Optional[str] = None
-    extra_instructions: Optional[Union[str, List[str]]] = None
-    scale_min: int = 1
-    scale_max: int = 5
-    labels: Optional[List[str]] = None
-    categories: Optional[List[str]] = None
-    options: Optional[List[str]] = None
-    values: Optional[List[str]] = None
-    output_key: Optional[str] = None
-    guidance: Optional[str] = None
-    description: Optional[str] = None
-
-    @property
-    def key(self) -> str:
-        return self.output_key or snake(self.feature)
-
-    @property
-    def allowed_labels(self) -> Optional[List[str]]:
-        if self.type != "category":
-            return None
-        for attr in ("labels", "categories", "options", "values"):
-            v = getattr(self, attr)
-            if v:
-                return list(v)
-        return None
-
-
-class ScoreMetric(BaseModel):
-    score: int = Field(..., ge=1, le=5)
-    justification: str
-
-
-class CategoryMetric(BaseModel):
-    category: str
-    justification: str
-
-
-def build_prompt(post: str, comment: str, features: List[Feature], 
-                original_comment: Optional[str], features_filter: Optional[List[str]]) -> str:
-    """Build prompt for LLM (from original code)"""
-    lines = []
-    has_alignment_score = False
-    category_rubric = ""
-
-    for f in features:
-        feature_name = ""
-        if features_filter is not None:
-            if hasattr(f, 'feature'):
-                feature_name = f.feature
-            elif isinstance(f, dict):
-                feature_name = f.get("feature")
-            else:
-                continue
-            if feature_name not in features_filter:
-                continue
+def _build_feature_schema(features: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Build JSON schema for features"""
+    properties = {}
+    required = []
+    
+    for feat in features:
+        name = feat["name"]
+        required.append(name)
         
-        if f.type == "category":
-            rubric_text = f"\n{f.rubric}" if f.rubric else ""
-            extra_text = ""
-            if f.extra_instructions:
-                if isinstance(f.extra_instructions, list):
-                    extra_text = "\n  Extra Instructions:\n    - " + "\n    - ".join(f.extra_instructions)
-                else:
-                    extra_text = f"\n  Extra Instructions: {f.extra_instructions}"
-            # lines.append(
-            #     f'- "{f.key}": {{"category": "<one of {f.labels}>", "justification": "<explanation>"}}{rubric_text}{extra_text}'
-            # )
-            lines.append(f'{rubric_text}{extra_text}')
-
-        if f.type == "score":
-            rubric_text = f"\nRubric:\n {f.rubric}" if f.rubric else ""
-            extra_text = ""
-            if f.extra_instructions:
-                if isinstance(f.extra_instructions, list):
-                    extra_text = "\n  Extra Instructions:\n    - " + "\n    - ".join(f.extra_instructions)
-                else:
-                    extra_text = f"\n  Extra Instructions: {f.extra_instructions}"
-            lines.append(
-                f'- "{f.key}": {{"score": <1-5>, "justification": "<explanation>"}}{rubric_text}{extra_text}'
-            )
-
-        if f.type == "alignment_score":
-            has_alignment_score = True
-    
-    rubric = chr(10).join(lines)
-    
-    example_structure = {}
-    for f in features:
-        if f.type == "category":
-            example_structure[f.key] = {
-                "category": f"<one of {', '.join(f.labels)}>",
-                "justification": "Brief explanation here"
+        if feat["type"] == "score":
+            properties[name] = {
+                "type": "object",
+                "properties": {
+                    "score": {"type": "integer"},
+                    "justification": {"type": "string"}
+                },
+                "required": ["score", "justification"]
             }
-        else:
-            example_structure[f.key] = {
-                "score": 3,
-                "justification": "Brief explanation here"
+        elif feat["type"] == "category":
+            properties[name] = {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string"},
+                    "justification": {"type": "string"}
+                },
+                "required": ["category", "justification"]
             }
     
-    example_json = json.dumps(example_structure, indent=2)
-
-    prompt1 = f"""
-
-You are a JSON-only assistant. Return ONLY a JSON object that matches this EXACT structure:
-
-{example_json}
-
-<RUBRIC>
-{rubric}
-</RUBRIC>
-
-IMPORTANT RULES:
-- For score metrics, use "score" (1-5) and "justification" fields
-- For category metrics, use "category" and "justification" fields instead
-- Do NOT nest metrics under a "metrics" key
-- Use the exact key names shown above
-- No extra keys or different structure
-
-
-
-"""
+    schema = {
+        "type": "object",
+        "properties": properties,
+        "required": required
+    }
     
-    if has_alignment_score:
-        prompt2 = f"""Score how well the GENERATED_COMMENT to the POST aligns with the ORIGINAL_COMMENT to the POST
-
-POST:
-{post}
-
-GENERATED_COMMENT:
-{comment}
-
-ORIGINAL_COMMENT:
-{original_comment}
-""".strip()
-        
-    else:
-        prompt2 = f"""
-
-The comment between the COMMENT markup tags is a reply to the post between the POST markup tags.
-
-<POST>
-{post}
-</POST>
-
-<COMMENT>
-{comment}
-</COMMENT>
-
-Classify or score the COMMENT text (using the POST only as context).
-
-Use the rubric between the RUBRIC markup tags to guide you.
-
-""".strip()
-    
-    prompt = prompt2 + prompt1
-    _global_debug_logger.write_file("PROMPT", prompt)
-    return prompt
-
-
-def _extract_content(resp: Any) -> Optional[str]:
-    """Extract content from various response formats"""
-    if resp is None:
-        return None
-    
-    if isinstance(resp, str):
-        return resp
-
-    if isinstance(resp, dict):
-        if isinstance(resp.get("content"), str):
-            return resp["content"]
-        if isinstance(resp.get("message"), dict) and isinstance(resp["message"].get("content"), str):
-            return resp["message"]["content"]
-        if isinstance(resp.get("choices"), list) and resp["choices"]:
-            ch0 = resp["choices"][0]
-            if isinstance(ch0, dict):
-                msg = ch0.get("message") or {}
-                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                    return msg["content"]
-                if isinstance(ch0.get("text"), str):
-                    return ch0["text"]
-
-    try:
-        for attr in ("output_text", "content"):
-            if hasattr(resp, attr) and isinstance(getattr(resp, attr), str):
-                return getattr(resp, attr)
-        if hasattr(resp, "message") and hasattr(resp.message, "content"):
-            return resp.message.content
-    except Exception:
-        pass
-
-    return None
-
-
-# Include other helper functions from original (load_features, validation, etc.)
-# [I'll keep the code concise - assume these are included from the original]
-
-def load_features(features_path: str) -> List[Feature]:
-    """Load features from JSON file (from original code)"""
-    data = json.loads(Path(features_path).read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        raise ValueError("features file must be a JSON array of feature objects")
-    
-    features: List[Feature] = []
-    for raw in data:
-        t = str(raw.get("type", "score")).strip().lower()
-        if t not in ("score", "category", "alignment_score"):
-            t = "score"
-        
-        rubric_raw = raw.get("rubric") or raw.get("guidance") or raw.get("description")
-        if isinstance(rubric_raw, list):
-            rubric = "\n".join(str(item) for item in rubric_raw) + "\n" if rubric_raw else None
-        elif rubric_raw is not None:
-            rubric = str(rubric_raw)
-        else:
-            rubric = None
-        
-        extra_instructions_raw = raw.get("extra_instructions")
-        if extra_instructions_raw is not None:
-            if isinstance(extra_instructions_raw, list):
-                extra_instructions = extra_instructions_raw
-            else:
-                extra_instructions = str(extra_instructions_raw)
-        else:
-            extra_instructions = None
-        
-        feat = Feature(
-            feature=raw.get("feature") or raw.get("name") or raw.get("title") or "Unnamed feature",
-            type=t,
-            rubric=rubric,
-            extra_instructions=extra_instructions,
-            scale_min=int(raw.get("scale_min", 1)),
-            scale_max=int(raw.get("scale_max", 5)),
-            labels=raw.get("labels") or raw.get("categories") or raw.get("options") or raw.get("values"),
-            output_key=raw.get("output_key"),
-            guidance=raw.get("guidance"),
-            description=raw.get("description"),
-        )
-        features.append(feat)
-    
-    return features
-
-
-# ... [Include validation and other helper functions from original]
+    return schema
 
 
 # ============================================================================
-# Multi-Backend Comment Scorer (Updated)
+# Main Scorer Class
 # ============================================================================
 
 class MultiGPUCommentScorer:
-    """Updated scorer with multi-backend support"""
+    """Comment scorer with multiple backend support and improved timeout handling"""
     
     def __init__(
         self,
         features_path: Optional[str] = None,
-        output_schema_path: Optional[str] = "json/llm_output_schema.json",
+        prompts_path: Optional[str] = None,
         model: str = "llama3:8b",
         temperature: float = 0.0,
-        prompts_path: Optional[str] = None,
-        num_gpus: int = 4,
-        max_concurrent: int = 20,
+        max_concurrent: int = 2,  # Changed default from 8 to 2 for single GPU
         backend: str = "ollama_async",
-        ollama_ports: Optional[List[int]] = None,
+        ollama_ports: List[int] = None,
         openai_api_key: Optional[str] = None,
         openai_base_url: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        # Handle legacy alias
-        if prompts_path is not None:
-            if features_path is not None:
-                raise ValueError("Provide only one of features_path or prompts_path, not both.")
-            features_path = prompts_path
-
-        if not features_path:
-            raise ValueError("features_path (or prompts_path) is required")
-
-        self.features: List[Feature] = load_features(features_path)
-        _global_debug_logger.write_file("INIT FEATURES", self.features)
-
+        timeout: int = 300,  # 5 minute default timeout
+        max_retries: int = 3,  # Number of retries on failure
+    ):
+        """
+        Initialize scorer with timeout and retry capabilities.
+        
+        Args:
+            features_path: Path to features JSON (old format)
+            prompts_path: Path to prompts JSON (new format)
+            model: Model name
+            temperature: Temperature for generation
+            max_concurrent: Maximum concurrent requests (use 1-2 for single GPU)
+            backend: LLM backend ('ollama_async', 'ollama', 'openai', 'gemini')
+            ollama_ports: List of Ollama ports for multi-GPU
+            openai_api_key: OpenAI API key
+            openai_base_url: OpenAI base URL
+            gemini_api_key: Gemini API key
+            timeout: Request timeout in seconds (default: 300)
+            max_retries: Number of retry attempts on failure (default: 3)
+        """
         self.model = model
-        self.temperature = float(temperature)
-        self.num_gpus = num_gpus
+        self.temperature = temperature
         self.max_concurrent = max_concurrent
         self.backend = backend
+        self.timeout = timeout
+        self.max_retries = max_retries
         
-        # Store client configuration
-        self.client_config = {
-            "ollama_ports": ollama_ports or [11434],
-            "max_connections_per_port": max(1, min(3, max_concurrent // len(ollama_ports or [11434]))),
-            "openai_api_key": openai_api_key,
-            "openai_base_url": openai_base_url,
-            "gemini_api_key": gemini_api_key,
+        # Load features/prompts
+        if prompts_path:
+            self._load_prompts_format(prompts_path)
+        elif features_path:
+            self._load_features_format(features_path)
+        else:
+            raise ValueError("Either features_path or prompts_path must be provided")
+        
+        # Setup client configuration
+        self.client_config = {"timeout": timeout}
+        
+        if backend == "ollama":
+            print("Ollama ports ", ollama_ports)
+            self.client_config["ports"] = ollama_ports or [11434]
+        elif backend == "openai":
+            self.client_config["api_key"] = openai_api_key
+            self.client_config["base_url"] = openai_base_url
+        elif backend == "gemini":
+            self.client_config["api_key"] = gemini_api_key
+        
+        self.first_prompt_logged = False
+        
+        print(f"Initialized scorer: backend={backend}, model={model}, max_concurrent={max_concurrent}, timeout={timeout}s")
+
+    def _load_features_format(self, features_path: str):
+        """Load old features format - handles both dict and list formats"""
+        with open(features_path, "r") as f:
+            data = json.load(f)
+        
+        # Check if it's a list (alternative format with "feature" and "rubric" keys)
+        if isinstance(data, list):
+            print(f"Detected list-based rubrics format with {len(data)} features, converting...")
+            
+            # Convert list format to expected structure
+            self.features = []
+            for item in data:
+                feature = {
+                    "name": item.get("feature", item.get("name", "")),
+                    "type": item.get("type", "score"),
+                    "description": item.get("rubric", item.get("description", ""))
+                }
+                self.features.append(feature)
+            
+            # Create default prompts that work well with the rubrics
+            self.system_prompt = (
+                "You are an expert analyst evaluating Reddit comments. "
+                "Analyze each comment carefully according to the provided rubrics. "
+                "Pay special attention to sarcasm, negation, and quoted text as outlined in the feature descriptions."
+            )
+            
+            self.user_prompt_template = """Analyze the following Reddit post and comment:
+
+Post: {post}
+
+Comment: {comment}
+
+Evaluate this comment using the features below. For each feature, provide both a score/category (following the rubric exactly) and a brief justification.
+
+Features to evaluate:
+{features}
+
+Return your analysis as a JSON object where each key is the exact feature name, and each value is an object containing:
+- "score" or "category": the rating according to the rubric
+- "justification": a brief explanation of your decision
+
+Important: Watch for sarcasm, negation, and quoted text as described in the rubrics."""
+            
+            print(f"✓ Loaded {len(self.features)} features from list-based format")
+        
+        # Standard dictionary format
+        elif isinstance(data, dict):
+            self.system_prompt = data.get("system_prompt", "")
+            self.user_prompt_template = data.get("user_prompt_template", "")
+            self.features = data.get("features", [])
+            print(f"✓ Loaded {len(self.features)} features from dict format")
+        
+        else:
+            raise ValueError(f"Unexpected features file format: {type(data)}. Expected dict or list.")
+        
+        # Build key map and schema (same for both formats)
+        self.key_map = {f["name"]: f["name"] for f in self.features}
+        self.schema = _build_feature_schema(self.features)
+
+    def _load_prompts_format(self, prompts_path: str):
+        """Load prompts format - handles both dict and list formats"""
+        with open(prompts_path, "r") as f:
+            data = json.load(f)
+        
+        # Check if it's a list (alternative format with "feature" and "rubric" keys)
+        if isinstance(data, list):
+            print(f"Detected list-based rubrics format with {len(data)} features, converting...")
+            
+            # Convert list format to expected structure
+            self.features = []
+            for item in data:
+                feature = {
+                    "name": item.get("feature", item.get("name", "")),
+                    "type": item.get("type", "score"),
+                    "description": item.get("rubric", item.get("description", ""))
+                }
+                self.features.append(feature)
+            
+            # Create default prompts that work well with the rubrics
+            self.system_prompt = (
+                "You are an expert analyst evaluating Reddit comments. "
+                "Analyze each comment carefully according to the provided rubrics. "
+                "Pay special attention to sarcasm, negation, and quoted text as outlined in the feature descriptions."
+            )
+            
+            self.user_prompt_template = """Analyze the following Reddit post and comment:
+
+Post: {post}
+
+Comment: {comment}
+
+Evaluate this comment using the features below. For each feature, provide both a score/category (following the rubric exactly) and a brief justification.
+
+Features to evaluate:
+{features}
+
+Return your analysis as a JSON object where each key is the exact feature name, and each value is an object containing:
+- "score" or "category": the rating according to the rubric
+- "justification": a brief explanation of your decision
+
+Important: Watch for sarcasm, negation, and quoted text as described in the rubrics."""
+            
+            print(f"✓ Loaded {len(self.features)} features from list-based format")
+        
+        # Standard dictionary format
+        elif isinstance(data, dict):
+            self.system_prompt = data.get("system_prompt", "")
+            self.user_prompt_template = data.get("user_prompt_template", "")
+            self.features = data.get("features", [])
+            print(f"✓ Loaded {len(self.features)} features from dict format")
+        
+        else:
+            raise ValueError(f"Unexpected prompts file format: {type(data)}. Expected dict or list.")
+        
+        # Build key map and schema (same for both formats)
+        self.key_map = {f["name"]: f["name"] for f in self.features}
+        self.schema = _build_feature_schema(self.features)
+
+    async def _call_llm_async(self, post: str, comment: str, client: LLMClient, 
+                             original_comment: Optional[str] = None,
+                             features_filter: Optional[List[str]] = None) -> Optional[str]:
+        """Call LLM with timeout handling"""
+        
+        # Build prompt
+        prompt_vars = {
+            "post": post,
+            "comment": comment,
+            "original_comment": original_comment or comment
         }
-
-        # Validate backend availability
-        if backend == "openai" and not OPENAI_AVAILABLE:
-            raise ImportError("OpenAI backend selected but openai library not installed. Run: pip install openai")
-        if backend == "gemini" and not GEMINI_AVAILABLE:
-            raise ImportError("Gemini backend selected but google-generativeai library not installed. Run: pip install google-generativeai")
-
-        # Load schema (keeping original logic)
-        try:
-            schema_path = Path(output_schema_path) if output_schema_path else Path("json/llm_output_schema.json")
-            if schema_path.exists():
-                self.base_schema = json.loads(schema_path.read_text(encoding="utf-8"))
-            else:
-                self.base_schema = {"type": "object", "additionalProperties": True}
-        except Exception:
-            self.base_schema = {"type": "object", "additionalProperties": True}
-
-        # Build validator (keeping original logic - simplified here)
-        self.validator = None  # Would use build_validation_schema from original
-        self.key_map: Dict[str, str] = {f.key: (f.output_key or f.key) for f in self.features}
-        self.prompts_path_value = prompts_path if prompts_path is not None else features_path
-
-        self._first_prompt_logged = False
-        self._first_prompt_lock = threading.Lock()
-
-    async def _call_llm_async(
-        self, 
-        post: str, 
-        comment: str, 
-        client: LLMClient, 
-        original_comment: Optional[str] = None, 
-        features_filter: Optional[List[str]] = None
-    ) -> Optional[str]:
-        """Async call to any LLM backend"""
         
-        prompt = build_prompt(
-            post=post, 
-            comment=comment, 
-            features=self.features, 
-            original_comment=original_comment, 
-            features_filter=features_filter
-        )
-
+        # Filter features if specified
+        if features_filter:
+            features_to_use = [f for f in self.features if f["name"] in features_filter]
+        else:
+            features_to_use = self.features
+        
+        prompt_vars["features"] = json.dumps(features_to_use, indent=2)
+        prompt = self.user_prompt_template.format(**prompt_vars)
+        
         # Log first prompt
-        if not self._first_prompt_logged:
-            with self._first_prompt_lock:
-                if not self._first_prompt_logged:
-                    self._log_first_prompt(prompt, post, comment, original_comment)
-                    self._first_prompt_logged = True
-
+        if not self.first_prompt_logged:
+            self._log_first_prompt(prompt, post, comment, original_comment)
+            self.first_prompt_logged = True
+        
         try:
             resp = await client.chat(
                 model=self.model,
@@ -723,7 +659,9 @@ class MultiGPUCommentScorer:
             f.write(f"FIRST PROMPT - Backend: {self.backend}\n")
             f.write("=" * 70 + "\n")
             f.write(f"Model: {self.model}\n")
-            f.write(f"Temperature: {self.temperature}\n\n")
+            f.write(f"Temperature: {self.temperature}\n")
+            f.write(f"Max Concurrent: {self.max_concurrent}\n")
+            f.write(f"Timeout: {self.timeout}s\n\n")
             f.write(f"POST:\n{post}\n\n")
             f.write(f"COMMENT:\n{comment}\n\n")
             if original_comment:
@@ -731,29 +669,58 @@ class MultiGPUCommentScorer:
             f.write(f"PROMPT:\n{prompt}\n")
 
     async def _process_item_async(self, item: Dict[str, Any], client: LLMClient, 
-                                  include_justifications: bool, features_filter: Optional[List[str]]) -> Optional[Dict[str, Any]]:
-        """Process single item (from original code)"""
+                                  include_justifications: bool, 
+                                  features_filter: Optional[List[str]]) -> Optional[Dict[str, Any]]:
+        """Process single item with retry logic"""
         post = item.get("post", "")
         comment = item.get("comment", "")
         original_comment = item.get("original_comment")
-
-        raw = await self._call_llm_async(post=post, comment=comment, client=client, 
-                                        original_comment=original_comment, features_filter=features_filter)
-        if raw is None:
-            return None
-
-        try:
-            model_obj = json.loads(raw)
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-            return None
         
-        # Simplified validation
-        return self._format_pipeline_record(item, model_obj, include_justifications)
+        for attempt in range(self.max_retries):
+            try:
+                raw = await self._call_llm_async(
+                    post=post, 
+                    comment=comment, 
+                    client=client, 
+                    original_comment=original_comment, 
+                    features_filter=features_filter
+                )
+                
+                if raw is None:
+                    if attempt < self.max_retries - 1:
+                        wait_time = 2 ** attempt  # Exponential backoff
+                        print(f"  Retry {attempt + 1}/{self.max_retries} after {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    return None
+
+                try:
+                    model_obj = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    if attempt < self.max_retries - 1:
+                        print(f"  JSON decode error, retrying: {e}")
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    print(f"  JSON decode error after {self.max_retries} attempts: {e}")
+                    return None
+                
+                return self._format_pipeline_record(item, model_obj, include_justifications)
+                
+            except (asyncio.TimeoutError, Exception) as e:
+                if attempt < self.max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"  Error on attempt {attempt + 1}/{self.max_retries}: {e}")
+                    print(f"  Waiting {wait_time}s before retry...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    print(f"  Failed after {self.max_retries} attempts: {e}")
+                    return None
+        
+        return None
 
     def _format_pipeline_record(self, item: Dict[str, Any], model_obj: Dict[str, Any], 
                                 include_justifications: bool) -> Dict[str, Any]:
-        """Format output record (simplified from original)"""
+        """Format output record"""
         scores: Dict[str, int] = {}
         categories: Dict[str, str] = {}
         justifications: Dict[str, str] = {}
@@ -801,12 +768,19 @@ class MultiGPUCommentScorer:
                 async with semaphore:
                     return await self._process_item_async(item, client, include_justifications, features_filter)
             
-            print(f"Processing {len(pairs)} items with {self.backend} backend (model: {self.model})")
+            print(f"Processing {len(pairs)} items with {self.backend} backend")
+            print(f"Model: {self.model}, Max concurrent: {self.max_concurrent}, Timeout: {self.timeout}s")
             
             tasks = [bounded_process(item) for item in pairs]
             results = await async_tqdm.gather(*tasks, desc=f"Scoring with {self.model}")
             
-            return [r for r in results if r is not None]
+            successful = [r for r in results if r is not None]
+            failed = len(results) - len(successful)
+            
+            if failed > 0:
+                print(f"Warning: {failed} items failed to process")
+            
+            return successful
 
     def score_batch(self, pairs: List[Dict[str, Any]], include_justifications: bool = True, 
                    features_filter: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -846,7 +820,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--input", help="Input JSONL file")
     p.add_argument("--out", help="Output JSONL file")
     p.add_argument("--include-justifications", action="store_true")
-    p.add_argument("--max-concurrent", type=int, default=8, help="Max concurrent requests")
+    p.add_argument("--max-concurrent", type=int, default=2, 
+                   help="Max concurrent requests (use 1-2 for single GPU, default: 2)")
+    p.add_argument("--timeout", type=int, default=300,
+                   help="Request timeout in seconds (default: 300)")
+    p.add_argument("--max-retries", type=int, default=3,
+                   help="Number of retry attempts on failure (default: 3)")
     
     # Backend selection
     p.add_argument("--backend", default="ollama_async", 
@@ -879,6 +858,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         openai_api_key=args.openai_api_key,
         openai_base_url=args.openai_base_url,
         gemini_api_key=args.gemini_api_key,
+        timeout=args.timeout,
+        max_retries=args.max_retries,
     )
 
     if not args.input:

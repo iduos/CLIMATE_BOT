@@ -5,7 +5,9 @@
 import json
 from typing import List, Dict, Optional
 from langchain_chroma import Chroma
-from langchain.schema import Document
+#from langchain.schema import Document
+from langchain_core.documents import Document
+from src.rag_chatbot import create_embeddings
 import os
 
 class VectorDBManager:
@@ -22,7 +24,6 @@ class VectorDBManager:
             embed_backend: Backend for embedding model ("openai", "gemini", "ollama", or None for auto-detect)
             embed_api_key: API key for embedding backend
         """
-        from src.rag_chatbot import create_embeddings
         
         self.persist_directory = persist_directory
         self.embedder = create_embeddings(
