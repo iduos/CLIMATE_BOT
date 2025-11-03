@@ -185,7 +185,7 @@ NOTE gpt-oss:20b or gpt-oss:120b will not work for classification as they don't 
 
 # APPENDIX
 
-If you see this error
+If you are installing on windows and see this error
 × Failed to build installable wheels for some pyproject.toml-based projects
 ╰─> scikit-learn-extra, hdbscan
 error: Microsoft Visual C++ 14.0 or greater is required.
