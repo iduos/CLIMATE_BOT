@@ -126,7 +126,52 @@ You can build your own vector database with your own searches and classification
     --vector_db_path vdbs/your_db_1000GF
 ```
 
-Replace *rubrics/climateUK4.json** with your file in rubrics folder. Note the json format used.
+Replace *rubrics/climateUK4.json** with your file in rubrics folder. Note the json format used, replace feature name, options and rubric
+
+```json
+[
+  {
+    "feature": "Climate Attitude UK",
+    "type": "category",
+    "options": [
+      "Concerned",
+      "Paradoxical",
+      "Sceptical",
+      "Irrelevant"
+    ],
+    "rubric": [
+      "Classify into one of four clusters based on expressed viewpoints Concerned, Paradoxical, Sceptical, Irrelevant",
+      " ",
+      "Sceptical:",
+      "The comment downplays the risks of climate change.",
+      "And/or the comment suggests impacts are exaggerated, distant, or not urgent.",
+      "And/or the comment expresses low support for strong action.",
+      "Corresponds to \"Doubtful\" or \"Denial\" groups in earlier research.",
+      " ",
+      "Concerned:",
+      "The comment acknowledges that climate change is real, imminent, and not exaggerated.",
+      "And/or the comment expresses that urgent action is needed to address risks.",
+      "And/or the comment strongly agrees that people will be affected within 30 years and that the crisis is not beyond control.",
+      " ",
+      "Paradoxical:",
+      "The comment holds mixed or ambivalent views.",
+      "And/or the comment sometimes agrees with sceptical statements (e.g., crisis exaggerated), but also believes impacts are coming soon.",
+      "And/or the comment expresses powerlessness, believing risks are real but out of human control.",
+      " ",
+      "Irrelevant:",
+      "No relevant content to classify.",
+      "And/or the comment nonsensical or too off-topic."
+    ],
+    "extra_instructions": [
+      "When a comment uses strong negative, sarcastic, or aggressive language, determine the *target* of the tone.",
+      "If the critique is directed at specific *policies, politicians, or other groups* (e.g., 'morons,' 'a joke') ", 
+      "do not automatically classify it as 'Sceptical', this can be Sceptical, but also expression of frustration ", 
+      "or cynical 'Concerned' or 'Paradoxical' views.",
+      "For lengthy or complex comments, weigh the *core argument* and majority sentiment over single qualifying sentences."
+    ]
+  }
+]
+```
 
 NOTE gpt-oss:20b or gpt-oss:120b will not work for classification as they don't support the json output needed.
 
