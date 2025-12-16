@@ -53,7 +53,7 @@ If you get *'Failed to build installable wheels for some pyproject.toml based pr
 
 # Build your own vector database
 
-You will need Reddit credentials for example add to .env
+You will need Reddit credentials for example add to **.env**
 
   REDDIT_CLIENT_ID=*****************
   
@@ -124,7 +124,7 @@ python build_knowledge_base.py process-all `
 ```
 
 
-Replace *rubrics/climateUK4.json** with your file in rubrics folder. Note the json format used, replace feature name, options and rubric
+Replace **rubrics** / **climateUK4.json** with your file in rubrics folder. Note the json format used, replace feature name, options and rubric
 
 ```json
 [
