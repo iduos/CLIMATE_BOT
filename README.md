@@ -63,14 +63,13 @@ You will need Reddit credentials for example add to **.env**
 
   GOOGLE_API_KEY=*******your api key********
 
-gemini-2.5-flash is recommended for classification, 
-
+The cloud based model gemini-2.5-flash is recommended for classification, and gemini-embedding-001 for embedding.
 
 If you prefer local models you will need to install ollama
 
   https://ollama.com/download
 
-qwen3:30b or llama3.1 models work results less consistent.
+qwen3:30b or llama3.1 models work though results less consistent.
 
 ```bash
 ollama pull nomic-embed-text:latest
@@ -80,7 +79,7 @@ ollama pull qwen3:30b
 
 You can build your own vector database with your own searches and classification criteria.
 
-## Linux (assuming local models)
+## Linux (local model example)
 
 ```bash
   python build_knowledge_base.py process-all \
@@ -101,8 +100,7 @@ You can build your own vector database with your own searches and classification
     --vector_db_path vdbs/your_db_1000GF
 ```
 
-## Windows PowerShell (assuming API model)
-
+## Windows PowerShell (cloud based model example)
 
 ```bash
 python build_knowledge_base.py process-all `
