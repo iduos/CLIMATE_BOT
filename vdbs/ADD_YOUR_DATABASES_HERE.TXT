@@ -1,0 +1,3 @@
+Due to Reddit's terms of serive, this repository does not include any Reddit-derived databases.
+
+See main page of how to create vector databases.

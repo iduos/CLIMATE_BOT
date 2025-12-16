@@ -15,7 +15,6 @@ menv/
 os_env
 
 data/
-vdbs/
 chroma_db/
 old/
 logs/
