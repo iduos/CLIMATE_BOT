@@ -32,9 +32,6 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If you get *'Failed to build installable wheels for some pyproject.toml based projects'* with Windows...see APPENDIX at end of this README.md
-
-
 
 # The files included are...
 
@@ -97,7 +94,7 @@ You can build your own vector database with your own searches and classification
     --embed_backend ollam \
     --sample_size 1000 \
     --include_justifications \
-    --vector_db_path vdbs/your_db_1000GF
+    --vector_db_path vdbs/your_db_1000
 ```
 
 ## Windows PowerShell (cloud based model example)
@@ -118,11 +115,11 @@ python build_knowledge_base.py process-all `
     --embed_backend gemini `
     --sample_size 10 `
     --include_justifications `
-    --vector_db_path vdbs/your_db_1000GF
+    --vector_db_path vdbs/your_db_1000
 ```
 
 
-Replace **rubrics** / **climateUK4.json** with your file in rubrics folder. Note the json format used, replace feature name, options and rubric
+If you want to try your own categories, you can replace **rubrics** / **climateUK4.json** with your file in rubrics folder. Note the json format used, replace feature name, options and rubric
 
 ```json
 [
@@ -181,7 +178,7 @@ On linux or a mac you can run the chatbot with
   --embed_backend ollama \
   --chat_model qwen3:30b \
   --chat_backend ollama \
-  --vector_db_path vdbs/climate_uk4_5000GF
+  --vector_db_path vdbs/your_db_1000
 ```
 
 (For Windows powershell replace \ with ` )
@@ -193,38 +190,8 @@ streamlit run climate_bot.py -- `
   --chat_model qwen3:30b `
   --chat_model gemini-2.5-flash `
   --chat_backend gemini `
-  --vector_db_path vdbs/your_db_1000GF
+  --vector_db_path vdbs/your_db_1000
 ```
 
 You can also run the chatbot with local ollama models or with an API key specified in a .env file in the same directory as the python files climate_bot.py and build_knowledge_base.py.
 
-
-# APPENDIX
-
-If you are installing on windows and see this error
-× Failed to build installable wheels for some pyproject.toml-based projects
-╰─> scikit-learn-extra, hdbscan
-error: Microsoft Visual C++ 14.0 or greater is required.
-
-This is a common issue on Windows when installing Python packages that use C/C++ extensions (like scikit-learn-extra or hdbscan).
-
-Fix: Install Microsoft C++ Build Tools
-When a pre-compiled wheel isn’t available for your Python version, pip must build the package from source — which requires a C/C++ compiler. On Windows, this compiler is provided by the Microsoft C++ Build Tools.
-
-1. Download the Installer
-
-Get the Visual Studio Community Installer
-—or directly the Build Tools.
-
-2. Install the C++ Workload
-
-Run the downloaded installer
-
-In the Workloads tab, check “Desktop development with C++”. Click Install
-
-3. Re-run your install
-After installation, restart PowerShell or your Anaconda Prompt to load the new compiler environment, then run:
-
-pip install -r requirements.txt
-
-The packages scikit-learn-extra and hdbscan should now build and install successfully.
