@@ -1,14 +1,13 @@
-# build_knowledge_base.py
+# build_knowledge_base.py (No Clustering Version)
 #
 # By Ian Drumm, The University of Salford, UK.
 #
 # Commands for building and managing the Reddit comment knowledge base:
 # - scrape: Scrape Reddit comments
 # - score: Score comments using LLM prompts
-# - cluster: Perform clustering on scored comments
-# - json-to-db: Add clustered data to vector database
+# - json-to-db: Add scored data to vector database
 # - rescore: Re-score existing data with updated prompts
-# - process-all: Run the full pipeline (scrape, score, cluster, add to DB)
+# - process-all: Run the full pipeline (scrape, score, add to DB)
 #
 import argparse
 import json
@@ -22,7 +21,6 @@ from src.scraper import RedditScraper
 from src.scraper import format_search_query
 from src.data_cleaning import clean_reddit_data
 from src.score_and_categorise_gpus import CommentScorer
-from src.cluster import ClusterVisualizer
 from src.vector_db_manager import VectorDBManager
 
 
@@ -31,18 +29,6 @@ def score_comments_data(input_data, prompts_path: str, model: str = "llama3.1:8B
     scorer = CommentScorer(prompts_path=prompts_path, model=model,backend=backend)
     scored = scorer.score_batch(input_data, include_justifications=include_justifications)
     return scored
-
-
-def cluster_comments_data(input_data, n_clusters: int, start_date: str, end_date: str, clustering_method: str = "gower_kmedoids"):
-    # Parse date strings into datetime.date objects for ClusterVisualizer
-    start = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-    end = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-    clusterer = ClusterVisualizer(n_clusters=n_clusters)
-    print(f"Performing {clustering_method} clustering on {len(input_data)} scored comments (clusters: {n_clusters})...")
-    clustered = clusterer.run_clustering(input_data, date_range=(start, end), clustering_method=clustering_method)
-    if not clustered:
-        print(f"No data matched the date range ({start_date} to {end_date}) for clustering. Clustered output will be empty.")
-    return clustered
 
 
 def write_log_entry(log_data: Dict[str, Any], log_dir: str = "logs") -> None:
@@ -89,30 +75,21 @@ def score_comments(input_path: str, output_path: str, prompts_path: str, model: 
     print(f"Scored data saved to {output_path}")
 
 
-def cluster_comments(input_path: str, output_path: str, n_clusters: int, start_date: str, end_date: str, clustering_method: str = "gower_kmedoids"):
-    with open(input_path, "r") as f:
-        data = json.load(f)
-    clustered = cluster_comments_data(data, n_clusters, start_date, end_date, clustering_method=clustering_method)
-    with open(output_path, "w") as f:
-        json.dump(clustered, f, indent=2)
-    print("Clustering complete. Clustered data saved to " + output_path)
-
-
-def add_to_vector_db(clustered_data_path: str, vector_db_path: str, 
+def add_to_vector_db(scored_data_path: str, vector_db_path: str, 
                      embed_model: str = "nomic-embed-text:latest",
                      embed_backend: Optional[str] = None,
                      embed_api_key: Optional[str] = None):
     """
-    Add clustered data to a vector database.
+    Add scored data to a vector database.
     
     Args:
-        clustered_data_path: Path to the clustered JSON data file
+        scored_data_path: Path to the scored JSON data file
         vector_db_path: Path to the vector database directory
         embed_model: Embedding model to use for the vector database
         embed_backend: Embedding backend (openai, gemini, ollama)
         embed_api_key: API key for embedding backend
     """
-    print(f"Step 4/4: Adding clustered data to vector database at {vector_db_path}...")
+    print(f"Step 4/4: Adding scored data to vector database at {vector_db_path}...")
     
     try:
         # Initialize the vector database manager
@@ -127,8 +104,8 @@ def add_to_vector_db(clustered_data_path: str, vector_db_path: str,
         initial_count = vector_db_manager.count_documents()
         print(f"Vector database currently contains {initial_count} documents")
         
-        # Add documents from the clustered JSON file
-        vector_db_manager.add_documents_from_json(clustered_data_path)
+        # Add documents from the scored JSON file
+        vector_db_manager.add_documents_from_json(scored_data_path)
         
         # Get document count after adding
         final_count = vector_db_manager.count_documents()
@@ -150,7 +127,6 @@ def rescore_database(
     scorer_backend: str = "ollama",
     include_justifications: bool = False,
     sample_size: Optional[int] = None,
-    filter_cluster_id: Optional[int] = None,
     embed_model: str = "nomic-embed-text:latest",
     embed_backend: Optional[str] = None,
     embed_api_key: Optional[str] = None,
@@ -167,7 +143,6 @@ def rescore_database(
         scorer_backend: Backend to use (ollama, openai, gemini, anthropic)
         include_justifications: Whether to include justifications
         sample_size: Optional limit on number of items to rescore
-        filter_cluster_id: Optional filter to only rescore specific cluster
         embed_model: Embedding model for vector database
         embed_backend: Embedding backend (openai, gemini, ollama)
         embed_api_key: API key for embedding backend
@@ -208,11 +183,6 @@ def rescore_database(
                 post = parts[0].replace("Post: ", "", 1)
                 comment = parts[1] if len(parts) > 1 else ""
                 
-                # Filter by cluster if specified
-                if filter_cluster_id is not None:
-                    if metadata.get("cluster_id") != filter_cluster_id:
-                        continue
-                
                 # Reconstruct item with all metadata
                 item = {
                     "post": post,
@@ -225,9 +195,6 @@ def rescore_database(
                         "subreddit": metadata.get("subreddit"),
                         "search_query": metadata.get("search_query"),
                     },
-                    "cluster_id": metadata.get("cluster_id"),
-                    "umap_x": metadata.get("umap_x"),
-                    "umap_y": metadata.get("umap_y"),
                     "_original_id": doc_id,
                 }
                 items_to_score.append(item)
@@ -263,14 +230,8 @@ def rescore_database(
     
     print(f"Successfully re-scored {len(rescored_data)} items")
     
-    # Preserve original metadata (cluster_id, UMAP coordinates, etc.)
+    # Preserve original metadata
     for i, (original_item, scored_item) in enumerate(zip(items_to_score, rescored_data)):
-        if "cluster_id" in original_item:
-            scored_item["cluster_id"] = original_item["cluster_id"]
-        if "umap_x" in original_item:
-            scored_item["umap_x"] = original_item["umap_x"]
-        if "umap_y" in original_item:
-            scored_item["umap_y"] = original_item["umap_y"]
         if "_original_id" in original_item:
             scored_item["_original_id"] = original_item["_original_id"]
         
@@ -328,14 +289,6 @@ def rescore_database(
         for category_key, category_value in parsed_categories.items():
             clean_key = category_key.replace(" ", "_").replace("-", "_").lower()
             updated_metadata[f"category_{clean_key}"] = vector_db_manager._clean_text(str(category_value))
-        
-        # Preserve cluster and UMAP data if present
-        if "cluster_id" in item:
-            updated_metadata["cluster_id"] = item["cluster_id"]
-        if "umap_x" in item:
-            updated_metadata["umap_x"] = item["umap_x"]
-        if "umap_y" in item:
-            updated_metadata["umap_y"] = item["umap_y"]
         
         # Update the document
         try:
@@ -404,13 +357,13 @@ def export_scores_to_csv(scored_data, csv_path: str, include_justifications: boo
         elif scores is not None:
             print(f"Warning: Item {i} has non-dict scores field, skipping scores...")
 
-        # Handle categories - FIXED: Add categories as columns with their values
+        # Handle categories
         categories = item.get("categories", {})
         if isinstance(categories, dict):
             # Add categories with original keys and their values
             for key, value in categories.items():
                 row[key] = value
-                category_keys.add(key)  # Collect the key names, not the values
+                category_keys.add(key)
         elif categories is not None:
             print(f"Warning: Item {i} has non-dict categories field, skipping categories...")
 
@@ -436,7 +389,7 @@ def export_scores_to_csv(scored_data, csv_path: str, include_justifications: boo
     fieldnames = (
         ["post", "comment"] +
         sorted(score_keys) +
-        sorted(category_keys) +  # FIXED: Now includes category columns
+        sorted(category_keys) +
         (sorted(justification_keys) if include_justifications else [])
     )
 
@@ -463,7 +416,6 @@ def process_all_comments_pipeline(
     query: str,
     scrape_limit: int,
     scoring_prompts: str,
-    n_clusters: int,
     start_date: str,
     end_date: str,
     bin_by_period: Optional[str],  # 'day', 'week', 'month', or None
@@ -471,14 +423,13 @@ def process_all_comments_pipeline(
     auto_format_query: bool = True,
     scorer_model: str = "llama3.1:8B",
     scorer_backend: str = "ollama",
-    sample_size_for_umap: int = 1000,
+    sample_size: int = 1000,
     include_justifications: bool = False,
     vector_db_path: Optional[str] = None,
     embed_model: str = "nomic-embed-text:latest",
     embed_backend: Optional[str] = None,
     embed_api_key: Optional[str] = None,
     save_intermediate_files: bool = False,
-    clustering_method: str = "gower_kmedoids",
     enable_logging: bool = False,
 ):
     # Initialize log data
@@ -487,13 +438,12 @@ def process_all_comments_pipeline(
         "subreddits": subreddits,
         "scrape_limit": scrape_limit,
         "scoring_prompts": scoring_prompts,
-        "n_clusters": n_clusters,
         "date_range": {"start": start_date, "end": end_date},
         "scorer_model": scorer_model,
         "scorer_backend": scorer_backend,
         "embed_model": embed_model,
         "embed_backend": embed_backend or "auto-detect",
-        "sample_size": sample_size_for_umap,
+        "sample_size": sample_size,
         "vector_db_path": vector_db_path,
         "output_path": output
     }
@@ -515,7 +465,7 @@ def process_all_comments_pipeline(
     SAMPLED_DATA_PATH = output.replace('.json', '_sampled.json')
     SCORED_DATA_PATH = output.replace('.json', '_scored.json')
 
-    total_steps = 5 if vector_db_path else 4
+    total_steps = 4 if vector_db_path else 3
 
     # Create data directory if it doesn't exist
     os.makedirs(os.path.dirname(output), exist_ok=True)
@@ -590,9 +540,9 @@ def process_all_comments_pipeline(
             json.dump(cleaned_data, f, indent=2)
         print(f"Cleaned data saved to {CLEANED_DATA_PATH}. Proceeding with {len(cleaned_data)} comments.")
 
-    if sample_size_for_umap > 0 and sample_size_for_umap < len(raw_data):
-        sampled_data = random.sample(cleaned_data, sample_size_for_umap)
-        print(f"Sampled {sample_size_for_umap} comments for processing.")
+    if sample_size > 0 and sample_size < len(raw_data):
+        sampled_data = random.sample(cleaned_data, sample_size)
+        print(f"Sampled {sample_size} comments for processing.")
     else:
         sampled_data = cleaned_data
         print(f"No sampling applied. Using all {len(cleaned_data)} comments.")
@@ -639,29 +589,15 @@ def process_all_comments_pipeline(
     # Export scores to CSV just for analysis
     export_scores_to_csv(scored_data, csv_path=output.replace('.json', '.csv'), include_justifications=include_justifications)
 
-    # Step 4: Cluster
-    print(f"Step 4/{total_steps}: Performing clustering on {len(sampled_data)} scored comments (clusters: {n_clusters})...")
-    cluster_start_time = datetime.datetime.now()
-    clustered = cluster_comments_data(scored_data, n_clusters, start_date, end_date, clustering_method=clustering_method)
-
-    cluster_end_time = datetime.datetime.now()
-        
-    log_data["clustering"] = {
-        "items_clustered": len(clustered),
-        "n_clusters": n_clusters,
-        "duration_seconds": (cluster_end_time - cluster_start_time).total_seconds(),
-        "clustering_method": clustering_method
-    }
-
+    # Save the scored data as final output
     with open(output, "w") as f:
-        json.dump(clustered, f, indent=2)
+        json.dump(scored_data, f, indent=2)
+    print(f"Scored data saved to {output}")
 
-    print("Clustering complete. Clustered data saved to " + output)
-
-    # Step 5: Add to Vector Database (optional)
+    # Step 4: Add to Vector Database (optional)
     vector_db_items_added = 0
     if vector_db_path:
-        print(f"Step 5/{total_steps}: Add to Vector Database {len(clustered)} post/comment pairs with scores, and cluster id of clusters: {n_clusters})...")
+        print(f"Step 4/{total_steps}: Add to Vector Database {len(scored_data)} post/comment pairs with scores...")
  
         try:
             vector_db_start_time = datetime.datetime.now()
@@ -701,7 +637,7 @@ def process_all_comments_pipeline(
         "total_duration_seconds": total_duration.total_seconds(),
         "pipeline_start": pipeline_start_time.strftime('%Y-%m-%d %H:%M:%S'),
         "pipeline_end": pipeline_end_time.strftime('%Y-%m-%d %H:%M:%S'),
-        "final_output_items": len(clustered),
+        "final_output_items": len(scored_data),
         "final_output_path": output
     }
     
@@ -728,7 +664,7 @@ def process_all_comments_pipeline(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Reddit Comment Knowledge Base Builder CLI")
+    parser = argparse.ArgumentParser(description="Reddit Comment Knowledge Base Builder CLI (No Clustering)")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Scrape command
@@ -750,30 +686,13 @@ def main():
     score_parser.add_argument("--prompts", type=str, default="prompts/prompts.json", help="Path to JSON file with LLM scoring prompts")
     score_parser.set_defaults(func=lambda args: score_comments(args.input, args.output, args.prompts))
 
-    # Cluster command
-    cluster_parser = subparsers.add_parser("cluster", help="Perform UMAP and KMeans clustering on scored comments")
-    cluster_parser.add_argument("--input", type=str, default="data/scored_data.json", help="Path to input scored JSON data")
-    cluster_parser.add_argument("--output", type=str, default="data/clustered_data.json", help="Path to output clustered JSON data")
-    cluster_parser.add_argument("--n_clusters", type=int, default=5, help="Number of clusters for KMeans")
-    cluster_parser.add_argument("--start_date", type=str, required=True, help="Start date (YYYY-MM-DD) for filtering comments")
-    cluster_parser.add_argument("--end_date", type=str, required=True, help="End date (YYYY-MM-DD) for filtering comments")
-    cluster_parser.add_argument(
-        "--clustering_method",
-        type=str,
-        default="gower_kmedoids",
-        help="Clustering method used gower_kmedoids, hdbscan, umap_kmeans (default: 'gower_kmedoids')"
-    )
-    cluster_parser.set_defaults(func=lambda args: cluster_comments(
-        args.input, args.output, args.n_clusters, args.start_date, args.end_date, args.clustering_method
-    ))
-
     # JSON to Vector Database command
-    json_to_db_parser = subparsers.add_parser("json-to-db", help="Add clustered JSON data to vector database")
+    json_to_db_parser = subparsers.add_parser("json-to-db", help="Add scored JSON data to vector database")
     json_to_db_parser.add_argument(
         "--input", 
         type=str, 
         required=True, 
-        help="Path to the clustered JSON data file to add to vector database"
+        help="Path to the scored JSON data file to add to vector database"
     )
     json_to_db_parser.add_argument(
         "--vector_db_path", 
@@ -861,12 +780,6 @@ def main():
         help="Optional: Limit number of items to rescore (useful for testing)"
     )
     rescore_parser.add_argument(
-        "--filter_cluster_id",
-        type=int,
-        default=None,
-        help="Optional: Only rescore items from a specific cluster"
-    )
-    rescore_parser.add_argument(
         "--embed_model",
         type=str,
         default="nomic-embed-text:latest",
@@ -894,7 +807,6 @@ def main():
             scorer_backend=args.scorer_backend,
             include_justifications=args.include_justifications,
             sample_size=args.sample_size,
-            filter_cluster_id=args.filter_cluster_id,
             embed_model=args.embed_model,
             embed_backend=args.embed_backend,
             embed_api_key=args.embed_api_key
@@ -902,7 +814,7 @@ def main():
     )
 
     # Process All (pipeline) command
-    process_all_parser = subparsers.add_parser("process-all", help="Run the full pipeline: scrape, score, cluster, and optionally add to vector database")
+    process_all_parser = subparsers.add_parser("process-all", help="Run the full pipeline: scrape, score, and optionally add to vector database")
     process_all_parser.add_argument(
         "--subreddits",
         type=str,
@@ -929,28 +841,22 @@ def main():
         help="Path to JSON file with LLM scoring prompts (for authenticity, ideology, etc.)"
     )
     process_all_parser.add_argument(
-        "--n_clusters",
-        type=int,
-        default=5,
-        help="Number of clusters for KMeans"
-    )
-    process_all_parser.add_argument(
         "--start_date",
         type=str,
         default="2000-01-01",
-        help="Start date (YYYY-MM-DD) for filtering comments for clustering"
+        help="Start date (YYYY-MM-DD) for filtering comments"
     )
     process_all_parser.add_argument(
         "--end_date",
         type=str,
         default="2030-01-01",
-        help="End date (YYYY-MM-DD) for filtering comments for clustering"
+        help="End date (YYYY-MM-DD) for filtering comments"
     )
     process_all_parser.add_argument(
         "--output",
         type=str,
-        default="data/clustered_data_pipeline_output.json",
-        help="Path to output the final clustered data JSON file"
+        default="data/scored_data_pipeline_output.json",
+        help="Path to output the final scored data JSON file"
     )
     process_all_parser.add_argument(
         "--scorer_model",
@@ -968,7 +874,7 @@ def main():
         "--sample_size",
         type=int,
         default=1000,
-        help="sample size for scoring and clustering (default: 1000, or -1 for no sampling)"
+        help="sample size for scoring (default: 1000, or -1 for no sampling)"
     )
     process_all_parser.add_argument(
         "--include_justifications",
@@ -991,7 +897,7 @@ def main():
         "--vector_db_path",
         type=str,
         default=None,
-        help="Optional: Path to vector database directory. If provided, clustered data will be added to the vector database as a final step"
+        help="Optional: Path to vector database directory. If provided, scored data will be added to the vector database as a final step"
     )
     process_all_parser.add_argument(
         "--embed_model",
@@ -1012,12 +918,6 @@ def main():
         help="API key for embedding backend (or set via environment variable)"
     )
     process_all_parser.add_argument(
-        "--clustering_method",
-        type=str,
-        default="gower_kmedoids",
-        help="Clustering method used gower_kmedoids, hdbscan, umap_kmeans (default: 'gower_kmedoids')"
-    )
-    process_all_parser.add_argument(
         "--bin_by_period",
         type=str,
         default=None,
@@ -1035,7 +935,6 @@ def main():
             query=args.query,
             scrape_limit=args.scrape_limit,
             scoring_prompts=args.scoring_prompts,
-            n_clusters=args.n_clusters,
             start_date=args.start_date,
             end_date=args.end_date,
             bin_by_period=args.bin_by_period,
@@ -1043,14 +942,13 @@ def main():
             auto_format_query=not args.no_auto_format,
             scorer_model=args.scorer_model,
             scorer_backend=args.scorer_backend,
-            sample_size_for_umap=args.sample_size,
+            sample_size=args.sample_size,
             include_justifications=args.include_justifications,
             vector_db_path=args.vector_db_path,
             embed_model=args.embed_model,
             embed_backend=args.embed_backend,
             embed_api_key=args.embed_api_key,
             save_intermediate_files=args.save_intermediate_files,
-            clustering_method=args.clustering_method,
             enable_logging=args.log
         )
     )

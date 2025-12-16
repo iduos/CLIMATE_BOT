@@ -21,11 +21,11 @@ cd CLIMATE_BOT
 ## Create a python virtual environment...
 
 ```bash
-python -m venv bot_env
+python -m venv climate_env
 
-source bot_env/bin/activate       # linux
+source climate_env/bin/activate       # linux
 
-.\bot_env\Scripts\Activate.ps1    # windows
+.\climate_env\Scripts\Activate.ps1    # windows
 
 python -m pip install --upgrade pip
 
@@ -34,32 +34,22 @@ pip install -r requirements.txt
 
 If you get *'Failed to build installable wheels for some pyproject.toml based projects'* with Windows...see APPENDIX at end of this README.md
 
-## Install Ollama and models...
 
-The database included here uses a local model for embedding, nomic-embed-text:latest.
-
-So you will need to install ollama
-
-  https://ollama.com/download
-
-```bash
-ollama pull nomic-embed-text:latest
-
-ollama pull qwen3:30b
-```
 
 # The files included are...
 
 
   **build_knowledge_base.py**   scrape, categorise and add post/comments pairs and meta data to a vector database
 
+  **/rubrics**                  your json specifying how to categorise comments 
+
+  **climate_bot.py**            chatbot with selectable viewpoints by positively filtering a vector database
+  
   **/src**                      common source files of functions used by the applications
 
   **/json**                     some important schema for LLM output verification
 
-  **/rubrics**                  your json specifying how to categorise comments 
 
-  **climate_bot.py**            chatbot with selectable viewpoints by positively filtering a vector database
 
 # Build your own vector database
 
@@ -71,11 +61,26 @@ You will need Reddit credentials for example add to .env
   
   REDDIT_USER_AGENT=**********************
 
+  GOOGLE_API_KEY=*******your api key********
+
 gemini-2.5-flash is recommended for classification, 
 
-for local testing qwen3:30b or llama3.1 models work fine though less accurate.
+
+If you prefer local models you will need to install ollama
+
+  https://ollama.com/download
+
+qwen3:30b or llama3.1 models work results less consistent.
+
+```bash
+ollama pull nomic-embed-text:latest
+
+ollama pull qwen3:30b
+```
 
 You can build your own vector database with your own searches and classification criteria.
+
+## Linux (assuming local models)
 
 ```bash
   python build_knowledge_base.py process-all \
@@ -87,13 +92,37 @@ You can build your own vector database with your own searches and classification
     --scrape_limit 1000 \
     --scoring_prompts "rubrics/climateUK4.json" \
     --output "data/environ_category_uk4_1000GF.json" \
-    --scorer_model gemini-2.5-flash \
-    --scorer_backend gemini \
+    --scorer_model qwen3:30b \
+    --scorer_backend ollama \
     --embed_model "nomic-embed-text:latest" \
+    --embed_backend ollam \
     --sample_size 1000 \
     --include_justifications \
     --vector_db_path vdbs/your_db_1000GF
 ```
+
+## Windows PowerShell (assuming API model)
+
+
+```bash
+python build_knowledge_base.py process-all `
+    --subreddits "worldnews, conservative, liberal, libertarian" `
+    --query "climate change OR global warming" `
+    --start_date "2025-01-01" `
+    --end_date "2025-11-01" `
+    --bin_by_period "month" `
+    --scrape_limit 1000 `
+    --scoring_prompts "rubrics/climateUK4.json" `
+    --output "data/environ_category_uk4_1000GF.json" `
+    --scorer_model gemini-2.5-flash `
+    --scorer_backend gemini `
+    --embed_model gemini-embedding-001 `
+    --embed_backend gemini `
+    --sample_size 10 `
+    --include_justifications `
+    --vector_db_path vdbs/your_db_1000GF
+```
+
 
 Replace *rubrics/climateUK4.json** with your file in rubrics folder. Note the json format used, replace feature name, options and rubric
 
@@ -146,7 +175,7 @@ NOTE gpt-oss:20b or gpt-oss:120b will not work for classification as they don't 
 
 # The chatbot
 
-On linux or a mac you can run the chatbot with local models using ollama 
+On linux or a mac you can run the chatbot with 
 
 ```bash
   streamlit run climate_bot.py -- \
@@ -161,28 +190,15 @@ On linux or a mac you can run the chatbot with local models using ollama
 
 ```bash
 streamlit run climate_bot.py -- `
-  --embed_model nomic-embed-text:latest `
-  --embed_backend ollama `
+  --embed_model gemini-embedding-001 `
+  --embed_backend gemini `
   --chat_model qwen3:30b `
-  --chat_backend ollama `
-  --vector_db_path vdbs/climate_uk4_5000GF
+  --chat_model gemini-2.5-flash `
+  --chat_backend gemini `
+  --vector_db_path vdbs/your_db_1000GF
 ```
 
-You can also run the chatbot with an API key specified in a .env file in the same directory 
-as the python files climate_bot.py and build_knowledge_base.py, with the contents, for example 
-
-  GOOGLE_API_KEY=*******your api key********
-
-Hence run with...
-
-```bash
-  streamlit run climate_bot.py -- \
-  --embed_model nomic-embed-text:latest \
-  --embed_backend ollama \
-  --embed_model nomic-embed-text:latest \
-  --chat_model gemini-2.5-flash \
-  --vector_db_path vdbs/climate_uk4_5000GF
-```
+You can also run the chatbot with local ollama models or with an API key specified in a .env file in the same directory as the python files climate_bot.py and build_knowledge_base.py.
 
 
 # APPENDIX
