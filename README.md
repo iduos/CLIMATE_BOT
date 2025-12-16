@@ -2,6 +2,9 @@
 
 Code to implement virtual humans whose responses to environmental messaging are shaped by their media diets and social interactions. The project scraped thousands of social media post–comment pairs related to environmental issues, classified them by viewpoint through the large-scale orchestration of multiple instances of large language models, and built a vector database of embedded interactions with associated classification metadata to serve as a knowledge source for a chatbot. Dynamic, metadata-based filtering of this knowledge source, in conjunction with retrieval-augmented generation, enabled a chatbot with selectable personas that generate responses to new social media posts based on stereotypical viewpoints grounded in current news, attitudes and zeitgeists.
 
+This repository does not include any Reddit-derived text, embeddings, or persisted vector databases. Although the data analysed in this project were sourced from publicly accessible Reddit posts and comments, Reddit’s terms of service restrict the redistribution of derived datasets, including embedded representations of user-generated content.
+
+To support transparency and reproducibility, this repository provides the full codebase for data collection, embedding, clustering, and vector-database construction, along with detailed instructions for reconstructing the dataset locally using Reddit post and comment identifiers and publicly available APIs.
 
 # Installation
 
@@ -47,57 +50,16 @@ ollama pull qwen3:30b
 
 # The files included are...
 
-  **climate_bot.py**            chatbot with selectable viewpoints by positively filtering a vector database
 
   **build_knowledge_base.py**   scrape, categorise and add post/comments pairs and meta data to a vector database
 
   **/src**                      common source files of functions used by the applications
 
-  **/vdbs**                     vector database
-
   **/json**                     some important schema for LLM output verification
 
   **/rubrics**                  your json specifying how to categorise comments 
 
-# The chatbot
-
-On linux or a mac you can run the chatbot with local models using ollama 
-
-```bash
-  streamlit run climate_bot.py -- \
-  --embed_model nomic-embed-text:latest \
-  --embed_backend ollama \
-  --chat_model qwen3:30b \
-  --chat_backend ollama \
-  --vector_db_path vdbs/climate_uk4_5000GF
-```
-
-(For Windows powershell replace \ with ` )
-
-```bash
-streamlit run climate_bot.py -- `
-  --embed_model nomic-embed-text:latest `
-  --embed_backend ollama `
-  --chat_model qwen3:30b `
-  --chat_backend ollama `
-  --vector_db_path vdbs/climate_uk4_5000GF
-```
-
-You can also run the chatbot with an API key specified in a .env file in the same directory 
-as the python files climate_bot.py and build_knowledge_base.py, with the contents, for example 
-
-  GOOGLE_API_KEY=*******your api key********
-
-Hence run with...
-
-```bash
-  streamlit run climate_bot.py -- \
-  --embed_model nomic-embed-text:latest \
-  --embed_backend ollama \
-  --embed_model nomic-embed-text:latest \
-  --chat_model gemini-2.5-flash \
-  --vector_db_path vdbs/climate_uk4_5000GF
-```
+  **climate_bot.py**            chatbot with selectable viewpoints by positively filtering a vector database
 
 # Build your own vector database
 
@@ -181,6 +143,46 @@ Replace *rubrics/climateUK4.json** with your file in rubrics folder. Note the js
 ```
 
 NOTE gpt-oss:20b or gpt-oss:120b will not work for classification as they don't support the json output needed.
+
+# The chatbot
+
+On linux or a mac you can run the chatbot with local models using ollama 
+
+```bash
+  streamlit run climate_bot.py -- \
+  --embed_model nomic-embed-text:latest \
+  --embed_backend ollama \
+  --chat_model qwen3:30b \
+  --chat_backend ollama \
+  --vector_db_path vdbs/climate_uk4_5000GF
+```
+
+(For Windows powershell replace \ with ` )
+
+```bash
+streamlit run climate_bot.py -- `
+  --embed_model nomic-embed-text:latest `
+  --embed_backend ollama `
+  --chat_model qwen3:30b `
+  --chat_backend ollama `
+  --vector_db_path vdbs/climate_uk4_5000GF
+```
+
+You can also run the chatbot with an API key specified in a .env file in the same directory 
+as the python files climate_bot.py and build_knowledge_base.py, with the contents, for example 
+
+  GOOGLE_API_KEY=*******your api key********
+
+Hence run with...
+
+```bash
+  streamlit run climate_bot.py -- \
+  --embed_model nomic-embed-text:latest \
+  --embed_backend ollama \
+  --embed_model nomic-embed-text:latest \
+  --chat_model gemini-2.5-flash \
+  --vector_db_path vdbs/climate_uk4_5000GF
+```
 
 
 # APPENDIX
